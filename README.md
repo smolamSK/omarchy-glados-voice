@@ -4,6 +4,8 @@ An [Omarchy](https://omarchy.org) plugin that reads your desktop notifications
 aloud in GLaDOS's voice, using [GLaDOS-TTS](https://github.com/nimaid/GLaDOS-TTS).
 A small icon in the bar shows that she is listening; click it to mute her.
 
+<img src="preview.png" alt="The GLaDOS Voice icon in the Omarchy bar, beside a notification that GLaDOS is reading aloud" width="720">
+
 ## Install
 
 ```bash
