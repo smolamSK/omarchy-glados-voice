@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.smolamsk.glados-voice",
+  "name": "GLaDOS Voice",
+  "version": "1.0.0",
+  "author": "smolamSK",
+  "description": "Reads your desktop notifications aloud in GLaDOS's voice",
+  "homepage": "https://github.com/smolamSK/omarchy-glados-voice",
+  "license": "MIT",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "GLaDOS Voice",
+    "description": "Reads your desktop notifications aloud in GLaDOS's voice. Click to mute.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "readBody": true,
+      "maxChars": 250,
+      "ignoreApps": ""
+    },
+    "schema": [
+      {
+        "key": "readBody",
+        "type": "boolean",
+        "label": "Read the message text",
+        "defaultValue": true,
+        "description": "Off reads only the notification title."
+      },
+      {
+        "key": "maxChars",
+        "type": "integer",
+        "label": "Longest message to read",
+        "min": 50,
+        "max": 1000,
+        "step": 50,
+        "defaultValue": 250,
+        "description": "Characters. Longer notifications are cut off at a word boundary."
+      },
+      {
+        "key": "ignoreApps",
+        "type": "string",
+        "label": "Never read these apps",
+        "defaultValue": "",
+        "description": "Comma-separated app names as they appear on notifications, e.g. Spotify, Slack. Case does not matter."
+      }
+    ]
+  }
+}

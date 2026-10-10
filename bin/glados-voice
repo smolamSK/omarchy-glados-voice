@@ -1,0 +1,139 @@
+#!/bin/bash
+
+# GLaDOS Voice helper.
+#
+#   glados-voice run              download the voice on first use, then read notifications
+#   glados-voice bootstrap        download the voice without starting
+#   glados-voice mute [on|off|toggle]
+#   glados-voice status           exit 0 when listening, 1 when muted
+#   glados-voice test             send a sample notification
+#
+# The shell plugin's Service.qml runs `glados-voice run`. Lines on stdout that
+# start with "@status" report progress to it; everything else goes to the log.
+
+set -euo pipefail
+
+PLUGIN_DIR=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}/glados-voice"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/glados-voice"
+LOG="$STATE/daemon.log"
+LOCK="${XDG_RUNTIME_DIR:-$STATE}/glados-voice.lock"
+
+# GLaDOS-TTS is pinned to an exact commit and checked out detached.
+TTS_REPO=https://github.com/nimaid/GLaDOS-TTS.git
+TTS_COMMIT=27b1ae489acc4404f9248a85361cdaf47d1b433f
+
+# Voice models published by dnhkng/GlaDOS, verified by sha256 before use.
+MODEL_BASE=https://github.com/dnhkng/GlaDOS/releases/download/0.1
+MODELS=(
+  "glados.onnx 17ea16dd18e1bac343090b8589042b4052f1e5456d42cad8842a4f110de25095"
+  "phomenizer_en.onnx b64dbbeca8b350927a0b6ca5c4642e0230173034abd0b5bb72c07680d700c5a0"
+)
+
+PYTHON_PACKAGES=(onnxruntime==1.31.0 numpy==2.5.3 num2words==0.5.14 jeepney==0.9.0)
+
+EXIT_MISSING_DEPENDENCY=3
+
+status() {
+  echo "@status $*"
+}
+
+notify() {
+  notify-send -a "GLaDOS Voice" "GLaDOS Voice" "$1" 2>/dev/null || true
+}
+
+ensure_state() {
+  mkdir -p "$STATE"
+  [[ -f $STATE/muted ]] || echo 0 >"$STATE/muted"
+}
+
+ready() {
+  [[ -f $DATA/.ready ]]
+}
+
+bootstrap() {
+  ready && return 0
+
+  local missing=()
+  for cmd in uv git curl sha256sum pw-play; do
+    command -v "$cmd" >/dev/null || missing+=("$cmd")
+  done
+  if ((${#missing[@]})); then
+    status "error missing ${missing[*]}"
+    notify "Missing ${missing[*]}. Install with: omarchy pkg add ${missing[*]}"
+    exit $EXIT_MISSING_DEPENDENCY
+  fi
+
+  status "bootstrapping"
+  notify "Downloading the GLaDOS voice (about 250 MB). This happens once."
+
+  local stage="$DATA.tmp.$$"
+  rm -rf "$DATA".tmp.*
+  mkdir -p "$stage"
+  trap 'rm -rf "$stage"' EXIT
+
+  git clone --quiet --no-checkout "$TTS_REPO" "$stage/GLaDOS-TTS"
+  git -C "$stage/GLaDOS-TTS" checkout --quiet --detach "$TTS_COMMIT"
+
+  uv venv --quiet --python 3.12 "$stage/venv"
+  uv pip install --quiet --python "$stage/venv/bin/python" "${PYTHON_PACKAGES[@]}"
+
+  local entry name sha target
+  for entry in "${MODELS[@]}"; do
+    read -r name sha <<<"$entry"
+    target="$stage/GLaDOS-TTS/glados/models/$name"
+    curl -fsSL --retry 3 -o "$target.part" "$MODEL_BASE/$name"
+    if ! echo "$sha  $target.part" | sha256sum --check --quiet --status; then
+      status "error checksum mismatch for $name"
+      notify "Download of $name failed its checksum. Try again later."
+      exit 1
+    fi
+    mv "$target.part" "$target"
+  done
+
+  touch "$stage/.ready"
+  rm -rf "$DATA"
+  mv "$stage" "$DATA"
+  trap - EXIT
+  notify "The GLaDOS voice is ready."
+}
+
+run() {
+  ensure_state
+  : >"$LOG"
+
+  # One reader at a time: a plugin reload can start a new copy before the old
+  # one has exited, and two would read every notification twice.
+  exec 9>"$LOCK"
+  flock 9
+
+  bootstrap 2>>"$LOG"
+  export GLADOS_VOICE_DATA="$DATA" GLADOS_VOICE_STATE="$STATE"
+  exec "$DATA/venv/bin/python" -u "$PLUGIN_DIR/bin/glados_voice.py" 2>>"$LOG"
+}
+
+mute() {
+  ensure_state
+  local current
+  current=$(<"$STATE/muted")
+  case "${1:-toggle}" in
+    on) echo 1 >"$STATE/muted" ;;
+    off) echo 0 >"$STATE/muted" ;;
+    toggle) [[ $current == 1 ]] && echo 0 >"$STATE/muted" || echo 1 >"$STATE/muted" ;;
+    *) usage ;;
+  esac
+}
+
+usage() {
+  echo "Usage: glados-voice [run|bootstrap|mute [on|off|toggle]|status|test]" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  run) run ;;
+  bootstrap) bootstrap ;;
+  mute) mute "${2:-toggle}" ;;
+  status) ensure_state; [[ $(<"$STATE/muted") != 1 ]] ;;
+  test) notify-send -a "Aperture Science" "Test chamber" "This is a test notification. The cake is a lie." ;;
+  *) usage ;;
+esac
