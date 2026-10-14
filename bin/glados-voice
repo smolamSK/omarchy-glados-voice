@@ -13,6 +13,9 @@
 
 set -euo pipefail
 
+# Everything this creates (state, log, downloads) is private to the user.
+umask 077
+
 PLUGIN_DIR=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/glados-voice"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/glados-voice"
@@ -44,6 +47,9 @@ notify() {
 
 ensure_state() {
   mkdir -p "$STATE"
+  # Tighten state left behind by older versions, created before the umask.
+  chmod 700 "$STATE"
+  find "$STATE" -mindepth 1 -maxdepth 1 -type f -exec chmod 600 {} +
   [[ -f $STATE/muted ]] || echo 0 >"$STATE/muted"
 }
 

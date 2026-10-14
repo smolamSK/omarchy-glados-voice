@@ -79,7 +79,8 @@ Everything goes into `~/.local/share/glados-voice/`. No sudo, no system packages
   each checked against a pinned SHA-256 before use
 
 Settings, the mute flag and a log (`daemon.log`) live in
-`~/.local/state/glados-voice/`.
+`~/.local/state/glados-voice/`, which is readable only by you. The log records
+which app sent a notification, never its text.
 
 ## Remove
 

@@ -121,7 +121,7 @@ def speaker(tts, jobs):
                 ["pw-play", "-"], input=wav.getvalue(), check=False, timeout=120
             )
         except Exception as e:  # keep the worker alive
-            log(f"speak failed: {e!r}")
+            log(f"speak failed: {type(e).__name__}")  # message may quote the text
 
 
 def main():
@@ -158,11 +158,12 @@ def main():
         if not text or (text == last_text and now - last_time < DEDUPE_SECONDS):
             continue
         last_text, last_time = text, now
+        # Log only the sender and length, never the notification text itself.
         try:
             jobs.put_nowait(text)
-            log(f"[{app}] {text}")
+            log(f"[{app}] speaking {len(text)} chars")
         except queue.Full:
-            log(f"queue full, dropped: [{app}] {text}")
+            log(f"[{app}] queue full, dropped {len(text)} chars")
 
 
 if __name__ == "__main__":
