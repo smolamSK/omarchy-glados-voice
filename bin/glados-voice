@@ -33,7 +33,8 @@ MODELS=(
   "phomenizer_en.onnx b64dbbeca8b350927a0b6ca5c4642e0230173034abd0b5bb72c07680d700c5a0"
 )
 
-PYTHON_PACKAGES=(onnxruntime==1.31.0 numpy==2.5.3 num2words==0.5.14 jeepney==0.9.0)
+# Exact versions and SHA-256 hashes of every Python package, wheels only.
+REQUIREMENTS="$PLUGIN_DIR/requirements.txt"
 
 EXIT_MISSING_DEPENDENCY=3
 
@@ -82,7 +83,8 @@ bootstrap() {
   git -C "$stage/GLaDOS-TTS" checkout --quiet --detach "$TTS_COMMIT"
 
   uv venv --quiet --python 3.12 "$stage/venv"
-  uv pip install --quiet --python "$stage/venv/bin/python" "${PYTHON_PACKAGES[@]}"
+  uv pip install --quiet --python "$stage/venv/bin/python" \
+    --require-hashes --no-deps --no-build -r "$REQUIREMENTS"
 
   local entry name sha target
   for entry in "${MODELS[@]}"; do
@@ -107,6 +109,10 @@ bootstrap() {
 run() {
   ensure_state
   : >"$LOG"
+  # Versions up to 1.0.0 spoke through a temp WAV readable by other users,
+  # which was left behind if the reader was stopped mid-sentence.
+  find "${TMPDIR:-/tmp}" -maxdepth 1 -type f -name 'glados-voice-*.wav' \
+    -user "$UID" -delete 2>/dev/null || true
 
   # One reader at a time: a plugin reload can start a new copy before the old
   # one has exited, and two would read every notification twice.

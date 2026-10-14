@@ -30,6 +30,8 @@ NOTIFY_STATE = Path(
 DEFAULTS = {"readBody": True, "maxChars": 250, "ignoreApps": ""}
 DEDUPE_SECONDS = 5
 QUEUE_SIZE = 5
+# Notify(app_name, replaces_id, app_icon, summary, body, actions, hints, expire_timeout)
+NOTIFY_SIGNATURE = "susssasa{sv}i"
 
 # GLaDOS-TTS imports sounddevice for playback we don't use (PortAudio can hang
 # under PipeWire); stub it so the PortAudio library is not needed at all.
@@ -89,6 +91,11 @@ def ignored(app, settings):
     return app.strip().lower() in names - {""}
 
 
+def printable(name, limit=64):
+    """App names come from other programs: keep them to one plain log line."""
+    return "".join(c for c in name if c.isprintable())[:limit]
+
+
 def clean(text):
     text = re.sub(r"<[^>]+>", " ", text or "")
     text = html.unescape(text)
@@ -144,16 +151,21 @@ def main():
         if (
             msg.header.message_type != MessageType.method_call
             or fields.get(HeaderFields.member) != "Notify"
-            or len(msg.body) < 5
+            or fields.get(HeaderFields.signature) != NOTIFY_SIGNATURE
         ):
             continue
         if muted() or dnd_enabled():
             continue
         app, _replaces, _icon, summary, body = msg.body[:5]
-        current = settings.get()
-        if ignored(app, current):
+        sender = printable(app)
+        try:
+            current = settings.get()
+            if ignored(app, current):
+                continue
+            text = build_text(summary, body, current)
+        except Exception as e:  # keep monitoring; never log a traceback of the text
+            log(f"[{sender}] skipped: {type(e).__name__}")
             continue
-        text = build_text(summary, body, current)
         now = time.monotonic()
         if not text or (text == last_text and now - last_time < DEDUPE_SECONDS):
             continue
@@ -161,9 +173,9 @@ def main():
         # Log only the sender and length, never the notification text itself.
         try:
             jobs.put_nowait(text)
-            log(f"[{app}] speaking {len(text)} chars")
+            log(f"[{sender}] speaking {len(text)} chars")
         except queue.Full:
-            log(f"[{app}] queue full, dropped {len(text)} chars")
+            log(f"[{sender}] queue full, dropped {len(text)} chars")
 
 
 if __name__ == "__main__":

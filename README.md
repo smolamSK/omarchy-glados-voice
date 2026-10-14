@@ -72,8 +72,10 @@ Everything goes into `~/.local/share/glados-voice/`. No sudo, no system packages
 
 - [GLaDOS-TTS](https://github.com/nimaid/GLaDOS-TTS), cloned and checked out at
   the pinned commit `27b1ae489acc4404f9248a85361cdaf47d1b433f`
-- A Python 3.12 virtual environment created by `uv`, with pinned versions of
-  `onnxruntime`, `numpy`, `num2words` and `jeepney` installed from PyPI
+- A Python 3.12 virtual environment created by `uv`, with `onnxruntime`,
+  `numpy`, `num2words`, `jeepney` and their dependencies installed from PyPI at
+  the exact versions and SHA-256 hashes in [`requirements.txt`](requirements.txt).
+  Only prebuilt wheels are used; nothing is built from source.
 - The voice models `glados.onnx` and `phomenizer_en.onnx` from the
   [dnhkng/GlaDOS 0.1 release](https://github.com/dnhkng/GlaDOS/releases/tag/0.1),
   each checked against a pinned SHA-256 before use
