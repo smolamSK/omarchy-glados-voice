@@ -75,7 +75,7 @@ class Settings:
             self.mtime = mtime
             try:
                 self.values = {**DEFAULTS, **json.loads(SETTINGS.read_text())}
-            except (OSError, ValueError) as e:
+            except (OSError, ValueError, TypeError) as e:  # TypeError: not an object
                 log(f"bad settings.json: {e!r}")
         return self.values
 
@@ -160,20 +160,23 @@ def play(wav, settings, sender):
     player = subprocess.Popen(["pw-play", "-"], stdin=subprocess.PIPE)
     threading.Thread(target=feed, args=(player.stdin, wav), daemon=True).start()
     deadline = time.monotonic() + PLAY_TIMEOUT
-    while True:
-        try:
-            player.wait(timeout=POLL_SECONDS)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-        reason = quiet(settings.get())
-        if not reason and time.monotonic() > deadline:
-            reason = "timed out"
-        if reason:
+    try:
+        while True:
+            try:
+                player.wait(timeout=POLL_SECONDS)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+            reason = quiet(settings.get())
+            if not reason and time.monotonic() > deadline:
+                reason = "timed out"
+            if reason:
+                log(f"[{sender}] cut off: {reason}")
+                return
+    finally:  # never leave her talking, whatever went wrong
+        if player.poll() is None:
             player.kill()
             player.wait()
-            log(f"[{sender}] cut off: {reason}")
-            return
 
 
 def speaker(tts, jobs, settings):
