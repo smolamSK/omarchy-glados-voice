@@ -63,8 +63,13 @@ from jeepney.bus_messages import Monitoring  # noqa: E402
 from jeepney.io.blocking import open_dbus_connection  # noqa: E402
 
 
+_log_lock = threading.Lock()
+
+
 def log(msg):
-    print(msg, file=sys.stderr, flush=True)
+    with _log_lock:  # whole lines only, however many threads log at once
+        sys.stderr.write(msg + "\n")
+        sys.stderr.flush()
 
 
 def status(msg):
