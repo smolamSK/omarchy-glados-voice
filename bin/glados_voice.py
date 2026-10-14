@@ -7,13 +7,13 @@ GLADOS_VOICE_STATE.
 """
 
 import html
+import io
 import json
 import os
 import queue
 import re
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import types
@@ -109,17 +109,19 @@ def build_text(summary, body, settings):
 
 
 def speaker(tts, jobs):
-    wav = Path(tempfile.gettempdir()) / f"glados-voice-{os.getpid()}.wav"
     while True:
         text = jobs.get()
         try:
             audio = tts.generate_speech_audio(text)
-            tts.save_wav(audio, str(wav))
-            subprocess.run(["pw-play", str(wav)], check=False, timeout=120)
+            # Build the WAV in memory and pipe it to pw-play, so notification
+            # speech never touches disk where another user could read it.
+            wav = io.BytesIO()
+            tts.save_wav(audio, wav)
+            subprocess.run(
+                ["pw-play", "-"], input=wav.getvalue(), check=False, timeout=120
+            )
         except Exception as e:  # keep the worker alive
             log(f"speak failed: {e!r}")
-        finally:
-            wav.unlink(missing_ok=True)
 
 
 def main():

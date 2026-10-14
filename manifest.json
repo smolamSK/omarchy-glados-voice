@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.smolamsk.glados-voice",
   "name": "GLaDOS Voice",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "smolamSK",
   "description": "Reads your desktop notifications aloud in GLaDOS's voice",
   "homepage": "https://github.com/smolamSK/omarchy-glados-voice",
