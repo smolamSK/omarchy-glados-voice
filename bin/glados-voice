@@ -21,6 +21,7 @@ DATA="${XDG_DATA_HOME:-$HOME/.local/share}/glados-voice"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/glados-voice"
 LOG="$STATE/daemon.log"
 LOCK="${XDG_RUNTIME_DIR:-$STATE}/glados-voice.lock"
+BOOTSTRAP_LOCK="${XDG_RUNTIME_DIR:-$STATE}/glados-voice-bootstrap.lock"
 
 # GLaDOS-TTS is pinned to an exact commit and checked out detached.
 TTS_REPO=https://github.com/nimaid/GLaDOS-TTS.git
@@ -46,6 +47,18 @@ notify() {
   notify-send -a "GLaDOS Voice" "GLaDOS Voice" "$1" 2>/dev/null || true
 }
 
+need() {
+  local missing=() cmd
+  for cmd in "$@"; do
+    command -v "$cmd" >/dev/null || missing+=("$cmd")
+  done
+  if ((${#missing[@]})); then
+    status "error missing ${missing[*]}"
+    notify "Missing ${missing[*]}. The GLaDOS Voice README lists what it needs."
+    exit $EXIT_MISSING_DEPENDENCY
+  fi
+}
+
 ensure_state() {
   mkdir -p "$STATE"
   # Tighten state left behind by older versions, created before the umask.
@@ -60,15 +73,15 @@ ready() {
 
 bootstrap() {
   ready && return 0
+  need uv git curl sha256sum
 
-  local missing=()
-  for cmd in uv git curl sha256sum pw-play; do
-    command -v "$cmd" >/dev/null || missing+=("$cmd")
-  done
-  if ((${#missing[@]})); then
-    status "error missing ${missing[*]}"
-    notify "Missing ${missing[*]}. Install with: omarchy pkg add ${missing[*]}"
-    exit $EXIT_MISSING_DEPENDENCY
+  # One download at a time, whether started by the reader or by hand, since
+  # each one clears away the staging directories of interrupted ones.
+  exec 8>"$BOOTSTRAP_LOCK"
+  flock 8
+  if ready; then
+    exec 8>&-
+    return 0
   fi
 
   status "bootstrapping"
@@ -103,16 +116,17 @@ bootstrap() {
   rm -rf "$DATA"
   mv "$stage" "$DATA"
   trap - EXIT
+  exec 8>&-
   notify "The GLaDOS voice is ready."
 }
 
 run() {
   ensure_state
   : >"$LOG"
-  # Versions up to 1.0.0 spoke through a temp WAV readable by other users,
-  # which was left behind if the reader was stopped mid-sentence.
-  find "${TMPDIR:-/tmp}" -maxdepth 1 -type f -name 'glados-voice-*.wav' \
-    -user "$UID" -delete 2>/dev/null || true
+  # Service.qml writes nothing into the state directory before this line: it
+  # is private from here on.
+  status "starting"
+  need pw-play setpriv
 
   # One reader at a time: a plugin reload can start a new copy before the old
   # one has exited, and two would read every notification twice.
@@ -143,7 +157,7 @@ usage() {
 
 case "${1:-}" in
   run) run ;;
-  bootstrap) bootstrap ;;
+  bootstrap) ensure_state; bootstrap ;;
   mute) mute "${2:-toggle}" ;;
   status) ensure_state; [[ $(<"$STATE/muted") != 1 ]] ;;
   test) notify-send -a "Aperture Science" "Test chamber" "This is a test notification. The cake is a lie." ;;

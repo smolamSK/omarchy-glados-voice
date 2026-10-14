@@ -31,10 +31,21 @@ Item {
     Qt.resolvedUrl("bin/glados-voice").toString().replace(/^file:\/\//, "")
 
   property var pendingSettings: null
+  property var pendingMuted: null
   property int restartDelay: 30000
 
+  // Set by the reader's first status line, which it prints once it has made
+  // the state directory private. Nothing is written there before that:
+  // FileView would create the directory itself, with the shell's looser umask.
+  property bool stateReady: false
+
   function setMuted(value) {
-    root.muted = value
+    if (!root.stateReady) {
+      root.pendingMuted = value
+      return
+    }
+    // The icon changes once the file is saved (onSaved), so it never shows
+    // muted while the reader still reads 0.
     mutedFile.setText(value ? "1\n" : "0\n")
   }
 
@@ -56,6 +67,11 @@ Item {
     stdout: SplitParser {
       onRead: function(line) {
         if (line.indexOf("@status ") !== 0) return
+        if (!root.stateReady) {
+          root.stateReady = true
+          if (root.pendingMuted !== null) root.setMuted(root.pendingMuted)
+          root.pendingMuted = null
+        }
         root.phase = line.slice(8)
         if (root.phase === "ready") {
           root.restartDelay = 30000
@@ -86,6 +102,8 @@ Item {
     printErrors: false
     onLoaded: root.muted = text().trim() === "1"
     onFileChanged: reload()
+    onSaved: root.muted = text().trim() === "1"
+    onSaveFailed: console.warn("GLaDOS Voice: could not save the mute state")
   }
 
   FileView {
