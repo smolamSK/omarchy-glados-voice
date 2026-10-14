@@ -6,12 +6,14 @@ Started by `glados-voice run`, which sets GLADOS_VOICE_DATA and
 GLADOS_VOICE_STATE.
 """
 
+import contextlib
 import html
 import io
 import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -27,9 +29,15 @@ NOTIFY_STATE = Path(
     os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")
 ) / "omarchy/notifications.json"
 
-DEFAULTS = {"readBody": True, "maxChars": 250, "ignoreApps": ""}
+DEFAULTS = {"readBody": True, "maxChars": 250, "ignoreApps": "", "readWhenLocked": False}
 DEDUPE_SECONDS = 5
 QUEUE_SIZE = 5
+PLAY_TIMEOUT = 120
+POLL_SECONDS = 0.5
+# Omarchy's own check, also used by its lock screen: asks Hyprland whether a
+# session lock is held, whichever program locked it. Exits 0 locked, 1 unlocked,
+# 2 undetermined.
+LOCK_CHECK = "omarchy-hyprland-session-locked"
 # Notify(app_name, replaces_id, app_icon, summary, body, actions, hints, expire_timeout)
 NOTIFY_SIGNATURE = "susssasa{sv}i"
 
@@ -86,6 +94,32 @@ def dnd_enabled():
         return False
 
 
+def screen_locked():
+    """Anything but a clear "unlocked" counts as locked: when in doubt, stay quiet."""
+    try:
+        done = subprocess.run(
+            [LOCK_CHECK],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    return done.returncode != 1
+
+
+def quiet(settings):
+    """Why GLaDOS has to stay silent right now, or None."""
+    if muted():
+        return "muted"
+    if dnd_enabled():
+        return "do not disturb"
+    if settings["readWhenLocked"] is not True and screen_locked():
+        return "screen locked"
+    return None
+
+
 def ignored(app, settings):
     names = {n.strip().lower() for n in str(settings["ignoreApps"]).split(",")}
     return app.strip().lower() in names - {""}
@@ -115,27 +149,61 @@ def build_text(summary, body, settings):
     return text
 
 
-def speaker(tts, jobs):
+def feed(pipe, data):
+    with contextlib.suppress(OSError):  # BrokenPipeError when cut off early
+        with pipe:
+            pipe.write(data)
+
+
+def play(wav, settings, sender):
+    """Pipe the WAV to pw-play, cutting it off as soon as GLaDOS has to go quiet."""
+    player = subprocess.Popen(["pw-play", "-"], stdin=subprocess.PIPE)
+    threading.Thread(target=feed, args=(player.stdin, wav), daemon=True).start()
+    deadline = time.monotonic() + PLAY_TIMEOUT
     while True:
-        text = jobs.get()
+        try:
+            player.wait(timeout=POLL_SECONDS)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        reason = quiet(settings.get())
+        if not reason and time.monotonic() > deadline:
+            reason = "timed out"
+        if reason:
+            player.kill()
+            player.wait()
+            log(f"[{sender}] cut off: {reason}")
+            return
+
+
+def speaker(tts, jobs, settings):
+    while True:
+        sender, text = jobs.get()
         try:
             audio = tts.generate_speech_audio(text)
             # Build the WAV in memory and pipe it to pw-play, so notification
             # speech never touches disk where another user could read it.
             wav = io.BytesIO()
             tts.save_wav(audio, wav)
-            subprocess.run(
-                ["pw-play", "-"], input=wav.getvalue(), check=False, timeout=120
-            )
-        except Exception as e:  # keep the worker alive
-            log(f"speak failed: {type(e).__name__}")  # message may quote the text
+            # The screen may have locked while this waited its turn.
+            reason = quiet(settings.get())
+            if reason:
+                log(f"[{sender}] dropped: {reason}")
+                continue
+            play(wav.getvalue(), settings, sender)
+        except Exception as e:  # keep the worker alive; the message may quote the text
+            log(f"[{sender}] speak failed: {type(e).__name__}")
 
 
 def main():
     log("loading GLaDOS models...")
     tts = glados.TTS()
+    settings = Settings()
     jobs = queue.Queue(maxsize=QUEUE_SIZE)
-    threading.Thread(target=speaker, args=(tts, jobs), daemon=True).start()
+    threading.Thread(target=speaker, args=(tts, jobs, settings), daemon=True).start()
+    if shutil.which(LOCK_CHECK) is None:
+        log(f"{LOCK_CHECK} not found: cannot tell when the screen is locked, "
+            "so GLaDOS stays quiet unless reading while locked is turned on")
 
     conn = open_dbus_connection(bus="SESSION")
     rule = "type='method_call',interface='org.freedesktop.Notifications',member='Notify'"
@@ -143,7 +211,6 @@ def main():
     log("monitoring notifications")
     status("ready")
 
-    settings = Settings()
     last_text, last_time = None, 0.0
     while True:
         msg = conn.receive()
@@ -153,8 +220,6 @@ def main():
             or fields.get(HeaderFields.member) != "Notify"
             or fields.get(HeaderFields.signature) != NOTIFY_SIGNATURE
         ):
-            continue
-        if muted() or dnd_enabled():
             continue
         app, _replaces, _icon, summary, body = msg.body[:5]
         sender = printable(app)
@@ -170,10 +235,14 @@ def main():
         if not text or (text == last_text and now - last_time < DEDUPE_SECONDS):
             continue
         last_text, last_time = text, now
+        reason = quiet(current)
+        if reason:
+            log(f"[{sender}] not read: {reason}")
+            continue
         # Log only the sender and length, never the notification text itself.
         try:
-            jobs.put_nowait(text)
-            log(f"[{sender}] speaking {len(text)} chars")
+            jobs.put_nowait((sender, text))
+            log(f"[{sender}] queued {len(text)} chars")
         except queue.Full:
             log(f"[{sender}] queue full, dropped {len(text)} chars")
 

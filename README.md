@@ -31,6 +31,7 @@ it is done. After that it starts in a couple of seconds.
 | --- | --- |
 | **Click the icon** | Mute or unmute. Muting keeps the voice loaded, so unmuting is instant. |
 | **Do Not Disturb** | Also silences GLaDOS. |
+| **Lock the screen** | GLaDOS stays quiet while it is locked, so nobody nearby hears your notifications. Ones that arrive meanwhile are not read later. |
 | **Disable the plugin** | `omarchy plugin disable io.github.smolamsk.glados-voice` stops the reader completely. |
 
 To mute from a key, add this to `~/.config/hypr/bindings.lua`:
@@ -45,7 +46,8 @@ listening) and `test` (sends a sample notification).
 
 Notifications are read as *title, then message*, with formatting removed. They
 are read in order, at most five waiting at a time; the same text arriving
-twice within five seconds is read once.
+twice within five seconds is read once. Muting, Do Not Disturb or locking the
+screen also stops her mid-sentence and drops the ones still waiting.
 
 ## Settings
 
@@ -56,6 +58,7 @@ Open the bar settings and pick GLaDOS Voice.
 | Read the message text | on | Off reads only the title. |
 | Longest message to read | 250 | Characters; longer ones are cut at a word. |
 | Never read these apps | (empty) | Comma-separated app names, e.g. `Spotify, Slack`. |
+| Read while the screen is locked | off | On reads notifications even while the screen is locked. |
 
 ## How it works
 
@@ -65,6 +68,10 @@ only listens. `Service.qml` runs `bin/glados-voice run`, which starts
 `org.freedesktop.Notifications.Notify` calls on your session bus, speaks each
 one with GLaDOS-TTS and plays it with `pw-play`. Nothing leaves your machine:
 speech is generated locally with ONNX Runtime on the CPU.
+
+Before and while speaking, it asks Omarchy's `omarchy-hyprland-session-locked`
+(the same check Omarchy's lock screen uses) whether Hyprland holds a session
+lock. If the answer is anything but a clear "unlocked", GLaDOS stays quiet.
 
 ### What it downloads
 

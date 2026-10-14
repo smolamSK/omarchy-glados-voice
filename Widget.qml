@@ -13,6 +13,7 @@ BarWidget {
   readonly property bool readBody: setting("readBody", true)
   readonly property int maxChars: setting("maxChars", 250)
   readonly property string ignoreApps: setting("ignoreApps", "")
+  readonly property bool readWhenLocked: setting("readWhenLocked", false)
 
   property var voice: null
   readonly property bool muted: voice ? voice.muted : false
@@ -32,13 +33,19 @@ BarWidget {
 
   function pushSettings() {
     if (!voice) return
-    voice.applySettings({ readBody: readBody, maxChars: maxChars, ignoreApps: ignoreApps })
+    voice.applySettings({
+      readBody: readBody,
+      maxChars: maxChars,
+      ignoreApps: ignoreApps,
+      readWhenLocked: readWhenLocked
+    })
   }
 
   onBarChanged: bindVoice()
   onReadBodyChanged: pushSettings()
   onMaxCharsChanged: pushSettings()
   onIgnoreAppsChanged: pushSettings()
+  onReadWhenLockedChanged: pushSettings()
 
   Timer {
     interval: 200

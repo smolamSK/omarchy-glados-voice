@@ -24,7 +24,8 @@
     "defaults": {
       "readBody": true,
       "maxChars": 250,
-      "ignoreApps": ""
+      "ignoreApps": "",
+      "readWhenLocked": false
     },
     "schema": [
       {
@@ -50,6 +51,13 @@
         "label": "Never read these apps",
         "defaultValue": "",
         "description": "Comma-separated app names as they appear on notifications, e.g. Spotify, Slack. Case does not matter."
+      },
+      {
+        "key": "readWhenLocked",
+        "type": "boolean",
+        "label": "Read while the screen is locked",
+        "defaultValue": false,
+        "description": "Off keeps GLaDOS quiet while the screen is locked, so nobody nearby hears your notifications."
       }
     ]
   }
